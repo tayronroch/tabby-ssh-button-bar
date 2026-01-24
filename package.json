@@ -24,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tayronroch/tabby-button-bar.git"
+    "url": "git+https://github.com/tayronroch/tabby-ssh-button-bar.git"
   },
   "bugs": {
-    "url": "https://github.com/tayronroch/tabby-button-bar/issues"
+    "url": "https://github.com/tayronroch/tabby-ssh-button-bar/issues"
   },
-  "homepage": "https://github.com/tayronroch/tabby-button-bar#readme",
+  "homepage": "https://github.com/tayronroch/tabby-ssh-button-bar#readme",
   "devDependencies": {
     "@angular/common": "17.3.5",
     "@angular/core": "17.3.5",
