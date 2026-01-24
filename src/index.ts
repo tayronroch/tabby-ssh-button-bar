@@ -41,7 +41,7 @@ export class ButtonBarToolbarButtonProvider extends ToolbarButtonProvider {
                 icon: 'fas fa-keyboard',
                 title: 'Toggle Button Bar',
                 touchBarTitle: 'Button Bar',
-                weight: 5,
+                weight: -10,
                 click: () => {
                     this.buttonBarService.toggle()
                 },

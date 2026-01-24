@@ -7,6 +7,8 @@ export class ButtonBarService {
     private buttonBarRef: ComponentRef<ButtonBarComponent> | null = null
     private wrapperElement: HTMLElement | null = null
     private visible = false
+    private resizeObserver: ResizeObserver | null = null
+    private spacingStyleElement: HTMLStyleElement | null = null
 
     constructor(
         private injector: Injector,
@@ -85,6 +87,7 @@ export class ButtonBarService {
 
         // Attach to Angular change detection
         this.appRef.attachView(this.buttonBarRef.hostView)
+        this.observeWrapperHeight()
 
     }
 
@@ -94,6 +97,9 @@ export class ButtonBarService {
             this.buttonBarRef.destroy()
             this.buttonBarRef = null
         }
+
+        this.disconnectResizeObserver()
+        this.resetLayoutSpacing()
 
         if (this.wrapperElement && this.wrapperElement.parentNode) {
             this.wrapperElement.parentNode.removeChild(this.wrapperElement)
@@ -109,5 +115,77 @@ export class ButtonBarService {
         pluginConfig['button-bar'].barVisible = this.visible
         this.config.store.pluginConfig = pluginConfig
         this.config.save()
+    }
+
+    private observeWrapperHeight(): void {
+        if (!this.wrapperElement) {
+            return
+        }
+
+        this.disconnectResizeObserver()
+
+        if (typeof ResizeObserver !== 'undefined') {
+            this.resizeObserver = new ResizeObserver(() => this.updateLayoutSpacing())
+            this.resizeObserver.observe(this.wrapperElement)
+        }
+
+        this.ensureSpacingStyle()
+        requestAnimationFrame(() => this.updateLayoutSpacing())
+    }
+
+    private disconnectResizeObserver(): void {
+        if (this.resizeObserver) {
+            this.resizeObserver.disconnect()
+            this.resizeObserver = null
+        }
+    }
+
+    private updateLayoutSpacing(): void {
+        if (!this.wrapperElement) {
+            return
+        }
+
+        const height = this.wrapperElement.offsetHeight
+        this.setSpacingVariable(height)
+    }
+
+    private resetLayoutSpacing(): void {
+        this.setSpacingVariable(0)
+        this.removeSpacingStyle()
+    }
+
+    private ensureSpacingStyle(): void {
+        if (this.spacingStyleElement) {
+            return
+        }
+        const style = document.createElement('style')
+        style.id = 'button-bar-spacing-style'
+        style.textContent = `
+            :root {
+                --tabby-button-bar-height: 0px;
+            }
+
+            app-root .content {
+                padding-bottom: 0 !important;
+            }
+
+            app-root .content > .content-tab {
+                bottom: var(--tabby-button-bar-height) !important;
+                height: calc(100% - var(--tabby-button-bar-height)) !important;
+            }
+        `
+        document.head?.appendChild(style)
+        this.spacingStyleElement = style
+    }
+
+    private removeSpacingStyle(): void {
+        if (this.spacingStyleElement && this.spacingStyleElement.parentNode) {
+            this.spacingStyleElement.parentNode.removeChild(this.spacingStyleElement)
+            this.spacingStyleElement = null
+        }
+    }
+
+    private setSpacingVariable(height: number): void {
+        document.documentElement.style.setProperty('--tabby-button-bar-height', `${height}px`)
     }
 }
