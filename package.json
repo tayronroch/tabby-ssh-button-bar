@@ -1,6 +1,6 @@
 {
   "name": "tabby-button-bar",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A customizable button bar for quick command execution in Tabby Terminal, inspired by SecureCRT",
   "keywords": [
     "tabby-plugin",

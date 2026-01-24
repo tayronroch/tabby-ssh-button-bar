@@ -908,14 +908,15 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
 
         setTimeout(() => {
             focusTerminal()
+            const sanitizedCommand = btn.command.replace(/\r?\n/g, ' ')
             if (terminalAny.inputProcessor?.writeText) {
-                terminalAny.inputProcessor.writeText(btn.command)
-                if (btn.sendEnter !== false) {
+                terminalAny.inputProcessor.writeText(sanitizedCommand)
+                if (btn.sendEnter === true) {
                     terminalAny.sendInput('\n')
                 }
             } else if (terminalAny.sendInput) {
-                let command = btn.command
-                if (btn.sendEnter !== false) {
+                let command = sanitizedCommand
+                if (btn.sendEnter === true) {
                     command += '\n'
                 }
                 terminalAny.sendInput(command)
@@ -1086,7 +1087,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             icon: '',
             color: this.presetColors[0],
             tooltip: '',
-            sendEnter: true,
+            sendEnter: false,
         }
         this.modalVisible = true
     }
@@ -1112,17 +1113,18 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         if (this.editingButton) {
             Object.assign(this.editingButton, {
                 label: this.modalData.label,
-                command: this.modalData.command,
+                command: this.modalData.command?.replace(/\r?\n/g, ' '),
                 icon: this.modalData.icon || undefined,
                 color: this.modalData.color || undefined,
                 tooltip: this.modalData.tooltip || undefined,
                 sendEnter: this.modalData.sendEnter,
             })
         } else {
+            const commandText = this.modalData.command!.replace(/\\r?\\n/g, ' ')
             const newButton: ButtonCommand = {
                 id: this.generateId(),
                 label: this.modalData.label!,
-                command: this.modalData.command!,
+                command: commandText,
                 icon: this.modalData.icon || undefined,
                 color: this.modalData.color || undefined,
                 tooltip: this.modalData.tooltip || undefined,
