@@ -1,10 +1,12 @@
 import { Component, OnInit, OnDestroy, HostBinding, HostListener, ElementRef, ViewChild } from '@angular/core'
 import {
     AppService,
-    ConfigService,
     BaseComponent,
+    BaseTabComponent,
+    ConfigService,
     HostAppService,
     Platform,
+    SplitTabComponent,
 } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 import { Subject } from 'rxjs'
@@ -681,11 +683,18 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
                 this.loadLists()
             })
 
+        const activeTerminal = this.findTerminalTab(this.app.activeTab)
+        if (activeTerminal) {
+            this.lastTerminalTab = activeTerminal
+        }
+
+        // Track terminal tab changes
         this.app.activeTabChange$
             .pipe(takeUntil(this.destroy$))
             .subscribe(tab => {
-                if (tab instanceof BaseTerminalTabComponent) {
-                    this.lastTerminalTab = tab
+                const terminal = this.findTerminalTab(tab)
+                if (terminal) {
+                    this.lastTerminalTab = terminal
                 }
             })
     }
@@ -764,30 +773,85 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         }
     }
 
-    // Terminal command execution
-    executeCommand(btn: ButtonCommand): void {
-        let activeTab: BaseTerminalTabComponent<any> | null = null
-        if (this.app.activeTab instanceof BaseTerminalTabComponent) {
-            activeTab = this.app.activeTab
-        } else {
-            activeTab = this.lastTerminalTab
+    private findTerminalTab(tab: BaseTabComponent | null): BaseTerminalTabComponent<any> | null {
+        if (!tab) {
+            return null
         }
-
-        if (activeTab) {
-            const terminal = activeTab as BaseTerminalTabComponent<any>
-            terminal.frontend?.focus()
-
-            let command = btn.command
-            if (btn.sendEnter !== false) {
-                command += '\n'
+        if (tab instanceof BaseTerminalTabComponent) {
+            return tab
+        }
+        if (tab instanceof SplitTabComponent) {
+            const focused = tab.getFocusedTab()
+            const focusedTerminal = this.findTerminalTab(focused)
+            if (focusedTerminal) {
+                return focusedTerminal
             }
 
-            setTimeout(() => {
-                terminal.sendInput(command)
-            }, 10)
-        } else {
-            console.warn('No active terminal tab to send command')
+            for (const child of tab.getAllTabs()) {
+                const candidate = this.findTerminalTab(child)
+                if (candidate) {
+                    return candidate
+                }
+            }
         }
+        return null
+    }
+
+    private getFirstTerminalFromTabs(): BaseTerminalTabComponent<any> | null {
+        const tabs = this.app.tabs || []
+        for (const tab of tabs) {
+            const candidate = this.findTerminalTab(tab)
+            if (candidate) {
+                return candidate
+            }
+        }
+        return null
+    }
+
+    private getActiveTerminalTab(): BaseTerminalTabComponent<any> | null {
+        const fromActive = this.findTerminalTab(this.app.activeTab)
+        if (fromActive) {
+            return fromActive
+        }
+        if (this.lastTerminalTab) {
+            return this.lastTerminalTab
+        }
+        const fromTabs = this.getFirstTerminalFromTabs()
+        if (fromTabs) {
+            this.lastTerminalTab = fromTabs
+            return fromTabs
+        }
+        return null
+    }
+
+    // Terminal command execution
+    executeCommand(btn: ButtonCommand): void {
+        const terminal = this.getActiveTerminalTab()
+        const terminalAny = terminal as BaseTerminalTabComponent<any> & { inputProcessor?: { writeText?: (text: string) => void } }
+
+        if (!terminal) {
+            console.warn('ButtonBar: No terminal tab found')
+            return
+        }
+
+        this.app.selectTab(terminal)
+
+        setTimeout(() => {
+            terminalAny.frontend?.focus()
+
+            if (terminalAny.inputProcessor?.writeText) {
+                terminalAny.inputProcessor.writeText(btn.command)
+                if (btn.sendEnter !== false) {
+                    terminalAny.sendInput('\n')
+                }
+            } else if (terminalAny.sendInput) {
+                let command = btn.command
+                if (btn.sendEnter !== false) {
+                    command += '\n'
+                }
+                terminalAny.sendInput(command)
+            }
+        }, 10)
     }
 
     // List menu
