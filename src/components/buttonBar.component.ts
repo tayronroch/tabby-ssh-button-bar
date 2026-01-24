@@ -172,6 +172,48 @@ export interface ButtonList {
                 <button class="btn btn-primary" (click)="importLists()">Import</button>
             </div>
         </div>
+
+        <!-- List Name Modal (Create/Rename) -->
+        <div class="modal-backdrop" *ngIf="listNameModalVisible" (click)="closeListNameModal()"></div>
+        <div class="command-modal" *ngIf="listNameModalVisible">
+            <div class="modal-header">
+                <h5>{{ editingList ? 'Rename List' : 'New List' }}</h5>
+                <button class="btn btn-link" (click)="closeListNameModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">List Name</label>
+                    <input type="text" class="form-control" [(ngModel)]="listNameInput" placeholder="e.g., Cisco, Huawei" (keyup.enter)="saveListName()">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" (click)="closeListNameModal()">Cancel</button>
+                <button class="btn btn-primary" (click)="saveListName()" [disabled]="!listNameInput?.trim()">
+                    {{ editingList ? 'Save' : 'Create' }}
+                </button>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div class="modal-backdrop" *ngIf="deleteConfirmVisible" (click)="closeDeleteConfirm()"></div>
+        <div class="command-modal" *ngIf="deleteConfirmVisible">
+            <div class="modal-header">
+                <h5>Delete List</h5>
+                <button class="btn btn-link" (click)="closeDeleteConfirm()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete "<strong>{{ listToDelete?.name }}</strong>"?</p>
+                <p class="text-muted">This will remove all commands in this list.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" (click)="closeDeleteConfirm()">Cancel</button>
+                <button class="btn btn-danger" (click)="confirmDeleteList()">Delete</button>
+            </div>
+        </div>
     `,
     styles: [`
         :host {
@@ -579,6 +621,15 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     importExportModalVisible = false
     listsJson = ''
 
+    // List name modal (create/rename)
+    listNameModalVisible = false
+    listNameInput = ''
+    editingList: ButtonList | null = null
+
+    // Delete confirmation modal
+    deleteConfirmVisible = false
+    listToDelete: ButtonList | null = null
+
     @ViewChild('listToggleButton', { read: ElementRef }) private listToggleButton?: ElementRef<HTMLElement>
     @ViewChild('listMenu', { read: ElementRef }) private listMenuElement?: ElementRef<HTMLElement>
 
@@ -808,35 +859,25 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     createList(event?: MouseEvent): void {
         event?.stopPropagation()
         event?.preventDefault()
-        const defaultName = `List ${this.lists.length + 1}`
-        setTimeout(() => {
-            const name = window.prompt('List name', defaultName)?.trim()
-            if (!name) return
-            const list: ButtonList = {
-                id: this.generateId(),
-                name,
-                buttons: [],
-            }
-            this.lists.push(list)
-            this.activeListId = list.id
-            this.saveLists()
-        }, 0)
+        this.closeListMenu()
+        this.editingList = null
+        this.listNameInput = `List ${this.lists.length + 1}`
+        this.listNameModalVisible = true
     }
 
     renameList(event: MouseEvent, list: ButtonList): void {
         event.stopPropagation()
         event.preventDefault()
-        setTimeout(() => {
-            const name = window.prompt('List name', list.name)?.trim()
-            if (!name) return
-            list.name = name
-            this.saveLists()
-        }, 0)
+        this.closeListMenu()
+        this.editingList = list
+        this.listNameInput = list.name
+        this.listNameModalVisible = true
     }
 
     duplicateList(event: MouseEvent, list: ButtonList): void {
         event.stopPropagation()
         event.preventDefault()
+        this.closeListMenu()
         const copy: ButtonList = {
             id: this.generateId(),
             name: `${list.name} (copy)`,
@@ -851,15 +892,55 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         event.stopPropagation()
         event.preventDefault()
         if (this.lists.length === 1) return
-        setTimeout(() => {
-            const confirmDelete = window.confirm(`Delete list "${list.name}"?`)
-            if (!confirmDelete) return
-            this.lists = this.lists.filter(l => l !== list)
-            if (this.activeListId === list.id) {
-                this.activeListId = this.lists[0]?.id || ''
+        this.closeListMenu()
+        this.listToDelete = list
+        this.deleteConfirmVisible = true
+    }
+
+    // List name modal methods
+    closeListNameModal(): void {
+        this.listNameModalVisible = false
+        this.editingList = null
+        this.listNameInput = ''
+    }
+
+    saveListName(): void {
+        const name = this.listNameInput?.trim()
+        if (!name) return
+
+        if (this.editingList) {
+            // Rename existing list
+            this.editingList.name = name
+        } else {
+            // Create new list
+            const list: ButtonList = {
+                id: this.generateId(),
+                name,
+                buttons: [],
             }
-            this.saveLists()
-        }, 0)
+            this.lists.push(list)
+            this.activeListId = list.id
+        }
+
+        this.saveLists()
+        this.closeListNameModal()
+    }
+
+    // Delete confirmation modal methods
+    closeDeleteConfirm(): void {
+        this.deleteConfirmVisible = false
+        this.listToDelete = null
+    }
+
+    confirmDeleteList(): void {
+        if (!this.listToDelete) return
+        const listId = this.listToDelete.id
+        this.lists = this.lists.filter(l => l.id !== listId)
+        if (this.activeListId === listId) {
+            this.activeListId = this.lists[0]?.id || ''
+        }
+        this.saveLists()
+        this.closeDeleteConfirm()
     }
 
     // Command modal
