@@ -6,9 +6,12 @@ import {
     ConfigService,
     HostAppService,
     Platform,
+    PlatformService,
     SplitTabComponent,
 } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
+import path from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { Subject } from 'rxjs'
 import { takeUntil } from 'rxjs/operators'
 
@@ -26,6 +29,11 @@ export interface ButtonList {
     id: string
     name: string
     buttons: ButtonCommand[]
+}
+
+interface ButtonBarStorage {
+    lists: ButtonList[]
+    activeListId?: string
 }
 
 @Component({
@@ -653,12 +661,14 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     private destroy$ = new Subject<void>()
     private lastTerminalTab: BaseTerminalTabComponent<any> | null = null
     private skipNextConfigReload = false
+    private storagePath?: string | null
     public barService: any = null
 
     constructor(
         private app: AppService,
         private config: ConfigService,
         private hostApp: HostAppService,
+        private platformService: PlatformService,
     ) {
         super()
         this.isMacOS = this.hostApp.platform === Platform.macOS
@@ -705,6 +715,13 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     }
 
     loadLists(): void {
+        const storage = this.loadStorageLists()
+        if (storage?.lists?.length) {
+            this.lists = storage.lists
+            this.activeListId = storage.activeListId || this.lists[0].id
+            return
+        }
+
         const pluginConfig = this.config.store.pluginConfig?.['button-bar'] || {}
 
         // Migration from old format (profiles with groups)
@@ -744,15 +761,63 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         }
     }
 
+    private getStoragePath(): string | null {
+        if (this.storagePath !== undefined) {
+            return this.storagePath
+        }
+        const configPath = this.platformService.getConfigPath()
+        if (!configPath) {
+            this.storagePath = null
+            return null
+        }
+        this.storagePath = path.join(path.dirname(configPath), 'button-bar-lists.json')
+        return this.storagePath
+    }
+
+    private loadStorageLists(): ButtonBarStorage | null {
+        const storagePath = this.getStoragePath()
+        if (!storagePath) {
+            return null
+        }
+        try {
+            if (!existsSync(storagePath)) {
+                return null
+            }
+            const content = readFileSync(storagePath, 'utf8')
+            return JSON.parse(content) as ButtonBarStorage
+        } catch (error) {
+            console.warn('ButtonBar: Unable to read storage file', error)
+            return null
+        }
+    }
+
     saveLists(): void {
         const pluginConfig = this.config.store.pluginConfig || {}
+        this.config.store.pluginConfig = pluginConfig
         pluginConfig['button-bar'] = {
+            ...(pluginConfig['button-bar'] || {}),
             lists: this.lists,
             activeListId: this.activeListId,
         }
-        this.config.store.pluginConfig = pluginConfig
         this.skipNextConfigReload = true
+        this.saveStorageLists()
         this.config.save()
+    }
+
+    private saveStorageLists(): void {
+        const storagePath = this.getStoragePath()
+        if (!storagePath) {
+            return
+        }
+        try {
+            mkdirSync(path.dirname(storagePath), { recursive: true })
+            writeFileSync(storagePath, JSON.stringify({
+                lists: this.lists,
+                activeListId: this.activeListId,
+            }, null, 2), 'utf8')
+        } catch (error) {
+            console.warn('ButtonBar: Unable to persist lists', error)
+        }
     }
 
     private createDefaultList(): ButtonList {

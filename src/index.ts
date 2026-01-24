@@ -58,14 +58,8 @@ export class ButtonBarConfigProvider extends ConfigProvider {
         pluginConfig: {
             'button-bar': {
                 barVisible: true,
-                buttonGroups: [
-                    {
-                        id: 'default',
-                        name: 'Commands',
-                        buttons: [],
-                        collapsed: false,
-                    },
-                ],
+                lists: [],
+                activeListId: '',
             },
         },
     }
