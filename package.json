@@ -1,0 +1,51 @@
+{
+  "name": "tabby-button-bar",
+  "version": "0.1.0",
+  "description": "A customizable button bar for quick command execution in Tabby Terminal, inspired by SecureCRT",
+  "keywords": [
+    "tabby-plugin",
+    "button-bar",
+    "quick-commands",
+    "terminal",
+    "tabby",
+    "securecrt"
+  ],
+  "main": "dist/index.js",
+  "typings": "dist/index.d.ts",
+  "scripts": {
+    "build": "webpack --mode production",
+    "watch": "webpack --mode development --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "author": "Tayron",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsukasagenesis/tabby-button-bar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tsukasagenesis/tabby-button-bar/issues"
+  },
+  "homepage": "https://github.com/tsukasagenesis/tabby-button-bar#readme",
+  "devDependencies": {
+    "@angular/common": "17.3.5",
+    "@angular/core": "17.3.5",
+    "@angular/forms": "17.3.5",
+    "@types/node": "^20.12.7",
+    "rxjs": "7.8.1",
+    "tabby-core": "1.0.197-nightly.1",
+    "tabby-terminal": "1.0.197-nightly.1",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "peerDependencies": {
+    "@angular/common": "17.3.5",
+    "@angular/core": "17.3.5",
+    "@angular/forms": "17.3.5",
+    "rxjs": "7.8.1",
+    "tabby-core": "1.0.197-nightly.1",
+    "tabby-terminal": "1.0.197-nightly.1"
+  }
+}
