@@ -74,9 +74,12 @@ interface ButtonBarStorage {
                     <ng-container *ngIf="activeList">
                         <button *ngFor="let btn of activeList.buttons"
                                 class="cmd-btn"
+                                tabindex="-1"
                                 [style.--btn-color]="btn.color || '#4a4a4a'"
                                 [title]="btn.tooltip || btn.command"
-                                (click)="executeCommand(btn)"
+                                (click)="executeCommand(btn, $event)"
+                                (mousedown)="$event.preventDefault()"
+                                (mouseup)="$event.preventDefault()"
                                 (contextmenu)="onButtonContextMenu($event, btn)">
                             <i *ngIf="btn.icon" class="fas" [ngClass]="'fa-' + btn.icon"></i>
                             <span>{{ btn.label }}</span>
@@ -890,7 +893,9 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     }
 
     // Terminal command execution
-    executeCommand(btn: ButtonCommand): void {
+    executeCommand(btn: ButtonCommand, event?: MouseEvent): void {
+        event?.preventDefault()
+        event?.stopPropagation()
         const terminal = this.getActiveTerminalTab()
         const terminalAny = terminal as BaseTerminalTabComponent<any> & { inputProcessor?: { writeText?: (text: string) => void } }
 
@@ -899,11 +904,10 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             return
         }
 
-        this.app.selectTab(terminal)
+        const focusTerminal = () => terminalAny.frontend?.focus()
 
         setTimeout(() => {
-            terminalAny.frontend?.focus()
-
+            focusTerminal()
             if (terminalAny.inputProcessor?.writeText) {
                 terminalAny.inputProcessor.writeText(btn.command)
                 if (btn.sendEnter !== false) {
@@ -916,6 +920,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
                 }
                 terminalAny.sendInput(command)
             }
+            setTimeout(focusTerminal, 20)
         }, 10)
     }
 
