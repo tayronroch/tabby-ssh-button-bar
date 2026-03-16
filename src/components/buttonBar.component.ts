@@ -1141,8 +1141,9 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     onButtonContextMenu(event: MouseEvent, btn: ButtonCommand): void {
         event.preventDefault()
         event.stopPropagation()
+        
         this.contextMenuButton = btn
-        this.contextMenuPosition = { x: event.clientX, y: event.clientY }
+        this.contextMenuPosition = { x: event.clientX, y: event.clientY - 105 }
         this.contextMenuVisible = true
     }
 
