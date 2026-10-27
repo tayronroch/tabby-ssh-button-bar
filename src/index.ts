@@ -1,4 +1,4 @@
-import { NgModule } from '@angular/core'
+import { NgModule, Injectable } from '@angular/core'
 import { CommonModule } from '@angular/common'
 import { FormsModule } from '@angular/forms'
 import { ToolbarButtonProvider, ConfigProvider } from 'tabby-core'
@@ -6,30 +6,15 @@ import { ToolbarButtonProvider, ConfigProvider } from 'tabby-core'
 import { ButtonBarComponent } from './components/buttonBar.component'
 import { ButtonBarService } from './services/buttonBar.service'
 
-@NgModule({
-    imports: [CommonModule, FormsModule],
-    declarations: [ButtonBarComponent],
-    exports: [ButtonBarComponent],
-})
-export class ButtonBarModule {
-    constructor(private buttonBarService: ButtonBarService) {
-        // Initialize the button bar on app start
-        setTimeout(() => {
-            this.buttonBarService.initialize()
-        }, 500)
-    }
-
-    static forRoot() {
-        return {
-            ngModule: ButtonBarModule,
-            providers: [ButtonBarService],
-        }
-    }
-}
-
 /**
- * Toolbar button provider for toggling the button bar
+ * Toolbar button provider for toggling the button bar.
+ *
+ * @Injectable() is required: Angular's JIT DI needs the design:paramtypes
+ * metadata that TypeScript only emits for decorated classes. Without it the
+ * provider cannot be constructed (NG0204) and the toolbar toggle silently
+ * never works.
  */
+@Injectable()
 export class ButtonBarToolbarButtonProvider extends ToolbarButtonProvider {
     constructor(private buttonBarService: ButtonBarService) {
         super()
@@ -38,7 +23,7 @@ export class ButtonBarToolbarButtonProvider extends ToolbarButtonProvider {
     provide() {
         return [
             {
-                icon: 'fas fa-keyboard',
+                icon: '<i class="fas fa-keyboard"></i>',
                 title: 'Toggle Button Bar',
                 touchBarTitle: 'Button Bar',
                 weight: -10,
@@ -65,11 +50,33 @@ export class ButtonBarConfigProvider extends ConfigProvider {
     }
 }
 
-export default [
-    ButtonBarModule.forRoot(),
-    { provide: ToolbarButtonProvider, useClass: ButtonBarToolbarButtonProvider, multi: true },
-    { provide: ConfigProvider, useClass: ButtonBarConfigProvider, multi: true },
-]
+@NgModule({
+    imports: [CommonModule, FormsModule],
+    declarations: [ButtonBarComponent],
+    exports: [ButtonBarComponent],
+    providers: [
+        ButtonBarService,
+        { provide: ToolbarButtonProvider, useClass: ButtonBarToolbarButtonProvider, multi: true },
+        { provide: ConfigProvider, useClass: ButtonBarConfigProvider, multi: true },
+    ],
+})
+export class ButtonBarModule {
+    constructor(private buttonBarService: ButtonBarService) {
+        // Initialize the button bar on app start
+        setTimeout(() => {
+            this.buttonBarService.initialize()
+        }, 500)
+    }
+
+    static forRoot() {
+        return {
+            ngModule: ButtonBarModule,
+            providers: [],
+        }
+    }
+}
+
+export default ButtonBarModule
 
 export { ButtonBarComponent } from './components/buttonBar.component'
 export { ButtonBarService } from './services/buttonBar.service'

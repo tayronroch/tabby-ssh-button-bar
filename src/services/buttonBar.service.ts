@@ -67,11 +67,16 @@ export class ButtonBarService {
             left: 0;
             right: 0;
             bottom: 0;
-            z-index: 9999;
+            z-index: 900;
             width: 100%;
         `
 
-        const parent = document.body || document.documentElement
+        // Mount inside app-root so the bar participates in Tabby's stacking
+        // context: above the terminal, but below ng-bootstrap modals (1050)
+        // and dropdowns (1000) instead of covering them with z-index 9999.
+        const parent = document.querySelector('app-root') as HTMLElement
+            ?? document.body
+            ?? document.documentElement
         parent.appendChild(this.wrapperElement)
 
         // Create the Angular component
@@ -108,12 +113,12 @@ export class ButtonBarService {
     }
 
     private saveVisibility(): void {
-        const pluginConfig = this.config.store.pluginConfig || {}
-        if (!pluginConfig['button-bar']) {
-            pluginConfig['button-bar'] = {}
+        // Mutate the leaf through ConfigProxy; assigning 'button-bar' itself
+        // (a structural member exposed as a getter-only proxy) throws.
+        const buttonBarConfig = this.config.store.pluginConfig?.['button-bar']
+        if (buttonBarConfig) {
+            buttonBarConfig.barVisible = this.visible
         }
-        pluginConfig['button-bar'].barVisible = this.visible
-        this.config.store.pluginConfig = pluginConfig
         this.config.save()
     }
 
@@ -165,13 +170,18 @@ export class ButtonBarService {
                 --tabby-button-bar-height: 0px;
             }
 
-            app-root .content {
-                padding-bottom: 0 !important;
-            }
-
-            app-root .content > .content-tab {
-                bottom: var(--tabby-button-bar-height) !important;
-                height: calc(100% - var(--tabby-button-bar-height)) !important;
+            /*
+             * Reserve space at the bottom of the outer layout container
+             * (the one that directly owns .tab-bar). Unlike shrinking
+             * .content-tab only, this also keeps a bottom tab bar visible.
+             * Covers Tabby 1.0.230 (app-root > .content) and newer layouts
+             * (app-root > .window > .content.main).
+             */
+            app-root > .content,
+            app-root > .window > .content,
+            app-root .content.main {
+                padding-bottom: var(--tabby-button-bar-height) !important;
+                box-sizing: border-box;
             }
         `
         document.head?.appendChild(style)

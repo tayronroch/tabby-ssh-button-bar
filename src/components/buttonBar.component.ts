@@ -11,7 +11,7 @@ import {
 } from 'tabby-core'
 import { BaseTerminalTabComponent } from 'tabby-terminal'
 import path from 'node:path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { Subject } from 'rxjs'
 import { takeUntil } from 'rxjs/operators'
 
@@ -39,8 +39,8 @@ interface ButtonBarStorage {
 @Component({
     selector: 'button-bar',
     template: `
-        <div class="button-bar-container">
-            <div class="button-bar-main">
+        <div class="button-bar-container" [class.collapsed]="collapsed">
+            <div class="button-bar-main" *ngIf="!collapsed">
                 <div class="list-selector">
                     <button class="list-toggle" #listToggleButton (click)="toggleListMenu($event)">
                         <span>{{ activeList?.name || 'Lists' }}</span>
@@ -90,11 +90,14 @@ interface ButtonBarStorage {
                     </button>
                 </div>
                 <div class="button-bar-actions">
-                    <button class="action-btn" (click)="toggleCollapse()" title="Hide button bar">
+                    <button class="action-btn" (click)="collapse()" title="Collapse button bar">
                         <i class="fas fa-chevron-down"></i>
                     </button>
                 </div>
             </div>
+            <button *ngIf="collapsed" class="expand-btn" (click)="expand()" title="Expand button bar">
+                <i class="fas fa-chevron-up"></i>
+            </button>
         </div>
 
         <!-- Add/Edit Command Modal -->
@@ -150,9 +153,9 @@ interface ButtonBarStorage {
 
         <!-- Context Menu -->
         <div class="context-menu"
+             #contextMenu
              *ngIf="contextMenuVisible"
-             [style.left.px]="contextMenuPosition.x"
-             [style.top.px]="contextMenuPosition.y">
+             [ngStyle]="contextMenuStyles">
             <div class="context-menu-item" (click)="contextMenuEdit()">
                 <i class="fas fa-fw fa-edit"></i>
                 <span>Edit</span>
@@ -254,6 +257,32 @@ interface ButtonBarStorage {
 
         :host.platform-linux .button-bar-container {
             padding: 6px 6px;
+        }
+
+        .button-bar-container.collapsed {
+            padding: 2px 6px;
+            justify-content: flex-end;
+        }
+
+        .expand-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 16px;
+            padding: 0;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 4px;
+            color: var(--bs-secondary-color, #888);
+            cursor: pointer;
+            font-size: 10px;
+        }
+
+        .expand-btn:hover {
+            border-color: var(--bs-border-color, #555);
+            color: var(--bs-body-color, #e0e0e0);
+            background: rgba(255,255,255,0.05);
         }
 
         .button-bar-main {
@@ -397,6 +426,11 @@ interface ButtonBarStorage {
             gap: 4px;
             flex: 1;
             justify-content: flex-start;
+            align-content: flex-start;
+            max-height: min(84px, 24vh);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding-right: 2px;
         }
 
         .cmd-btn {
@@ -482,6 +516,9 @@ interface ButtonBarStorage {
             box-shadow: 0 8px 32px rgba(0,0,0,0.3);
             z-index: 10001;
             width: min(420px, 90vw);
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            box-sizing: border-box;
         }
 
         .modal-header {
@@ -558,6 +595,8 @@ interface ButtonBarStorage {
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             z-index: 10002;
             min-width: 140px;
+            max-width: calc(100vw - 16px);
+            box-sizing: border-box;
             padding: 4px 0;
             font-size: 12px;
         }
@@ -623,8 +662,12 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
 
     // Context menu state
     contextMenuVisible = false
-    contextMenuPosition = { x: 0, y: 0 }
+    contextMenuStyles: Record<string, string> = {}
     contextMenuButton: ButtonCommand | null = null
+    private contextMenuAnchor: DOMRect | null = null
+
+    // Collapse state (collapses to a slim strip with an expand button)
+    collapsed = false
 
     // List menu state
     listMenuVisible = false
@@ -645,6 +688,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
 
     @ViewChild('listToggleButton', { read: ElementRef }) private listToggleButton?: ElementRef<HTMLElement>
     @ViewChild('listMenu', { read: ElementRef }) private listMenuElement?: ElementRef<HTMLElement>
+    @ViewChild('contextMenu', { read: ElementRef }) private contextMenuElement?: ElementRef<HTMLElement>
 
     get activeList(): ButtonList | undefined {
         return this.lists.find(l => l.id === this.activeListId) || this.lists[0]
@@ -663,7 +707,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
 
     private destroy$ = new Subject<void>()
     private lastTerminalTab: BaseTerminalTabComponent<any> | null = null
-    private skipNextConfigReload = false
+    private lastConfigSnapshot = ''
     private storagePath?: string | null
     public barService: any = null
 
@@ -679,20 +723,52 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
 
     @HostListener('document:click', ['$event'])
     onDocumentClick(_event: MouseEvent): void {
-        this.contextMenuVisible = false
+        // Context menu closing is handled on primary pointerdown. Closing it
+        // from "click" made a plain right-click flash the menu closed: in some
+        // environments a secondary click can produce a synthetic click event
+        // after 'contextmenu'.
         this.closeListMenu()
+    }
+
+    @HostListener('document:pointerdown', ['$event'])
+    onDocumentPointerDown(event: PointerEvent): void {
+        if (event.button !== 0 || !this.contextMenuVisible) {
+            return
+        }
+        if (this.contextMenuElement?.nativeElement.contains(event.target as Node)) {
+            return
+        }
+        this.closeContextMenu()
+    }
+
+    @HostListener('document:keydown.escape')
+    onEscape(): void {
+        this.closeContextMenu()
+        this.closeListMenu()
+    }
+
+    private closeContextMenu(): void {
+        this.contextMenuVisible = false
+        this.contextMenuStyles = {}
+        this.contextMenuAnchor = null
     }
 
     ngOnInit(): void {
         this.loadLists()
 
+        this.lastConfigSnapshot = this.configSnapshot()
+
         this.config.changed$
             .pipe(takeUntil(this.destroy$))
             .subscribe(() => {
-                if (this.skipNextConfigReload) {
-                    this.skipNextConfigReload = false
+                // Only reload when the button-bar part of the config actually
+                // changed. This also prevents the save -> changed$ -> reload
+                // loop the old skipNextConfigReload flag tried to avoid.
+                const snapshot = this.configSnapshot()
+                if (snapshot === this.lastConfigSnapshot) {
                     return
                 }
+                this.lastConfigSnapshot = snapshot
                 this.loadLists()
             })
 
@@ -718,13 +794,6 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     }
 
     loadLists(): void {
-        const storage = this.loadStorageLists()
-        if (storage?.lists?.length) {
-            this.lists = storage.lists
-            this.activeListId = storage.activeListId || this.lists[0].id
-            return
-        }
-
         const pluginConfig = this.config.store.pluginConfig?.['button-bar'] || {}
 
         // Migration from old format (profiles with groups)
@@ -752,16 +821,40 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             }
         }
 
-        // New format
+        // Single source of truth: the plugin config.
         if (pluginConfig.lists?.length) {
             this.lists = pluginConfig.lists
             this.activeListId = pluginConfig.activeListId || this.lists[0].id
-        } else {
-            // Default
-            this.lists = [this.createDefaultList()]
-            this.activeListId = this.lists[0].id
-            this.saveLists()
+            this.lastConfigSnapshot = this.configSnapshot()
+            // Clean up the legacy duplicate storage file if it is still there.
+            this.markLegacyStorageMigrated()
+            return
         }
+
+        // One-time migration from the old button-bar-lists.json file. New
+        // versions never write this file again; it is only read if the config
+        // has no lists yet, then renamed to *.migrated.
+        const legacy = this.loadLegacyStorage()
+        if (legacy?.lists?.length) {
+            this.lists = legacy.lists
+            this.activeListId = legacy.activeListId || this.lists[0].id
+            this.saveLists()
+            this.markLegacyStorageMigrated()
+            return
+        }
+
+        // Default
+        this.lists = [this.createDefaultList()]
+        this.activeListId = this.lists[0].id
+        this.saveLists()
+    }
+
+    private configSnapshot(): string {
+        const buttonBarConfig = this.config.store.pluginConfig?.['button-bar']
+        return JSON.stringify({
+            lists: buttonBarConfig?.lists ?? [],
+            activeListId: buttonBarConfig?.activeListId ?? '',
+        })
     }
 
     private getStoragePath(): string | null {
@@ -777,7 +870,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         return this.storagePath
     }
 
-    private loadStorageLists(): ButtonBarStorage | null {
+    private loadLegacyStorage(): ButtonBarStorage | null {
         const storagePath = this.getStoragePath()
         if (!storagePath) {
             return null
@@ -789,38 +882,37 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             const content = readFileSync(storagePath, 'utf8')
             return JSON.parse(content) as ButtonBarStorage
         } catch (error) {
-            console.warn('ButtonBar: Unable to read storage file', error)
+            console.warn('ButtonBar: Unable to read legacy storage file', error)
             return null
         }
     }
 
-    saveLists(): void {
-        const pluginConfig = this.config.store.pluginConfig || {}
-        this.config.store.pluginConfig = pluginConfig
-        pluginConfig['button-bar'] = {
-            ...(pluginConfig['button-bar'] || {}),
-            lists: this.lists,
-            activeListId: this.activeListId,
-        }
-        this.skipNextConfigReload = true
-        this.saveStorageLists()
-        this.config.save()
-    }
-
-    private saveStorageLists(): void {
+    private markLegacyStorageMigrated(): void {
         const storagePath = this.getStoragePath()
-        if (!storagePath) {
+        if (!storagePath || !existsSync(storagePath)) {
             return
         }
         try {
-            mkdirSync(path.dirname(storagePath), { recursive: true })
-            writeFileSync(storagePath, JSON.stringify({
-                lists: this.lists,
-                activeListId: this.activeListId,
-            }, null, 2), 'utf8')
+            renameSync(storagePath, `${storagePath}.migrated`)
         } catch (error) {
-            console.warn('ButtonBar: Unable to persist lists', error)
+            console.warn('ButtonBar: Unable to rename legacy storage file', error)
         }
+    }
+
+    saveLists(): void {
+        // ConfigProxy exposes structural members as getter-only proxies, so
+        // replace leaves instead of assigning the whole 'button-bar' object
+        // (that throws a TypeError in strict mode and aborted saveButton()
+        // before closeModal()).
+        const buttonBarConfig = this.config.store.pluginConfig?.['button-bar']
+        if (!buttonBarConfig) {
+            console.warn('ButtonBar: pluginConfig["button-bar"] is missing')
+            return
+        }
+        buttonBarConfig.lists = this.lists
+        buttonBarConfig.activeListId = this.activeListId
+        this.lastConfigSnapshot = this.configSnapshot()
+        this.config.save()
     }
 
     private createDefaultList(): ButtonList {
@@ -835,10 +927,12 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         return 'btn_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 7)
     }
 
-    toggleCollapse(): void {
-        if (this.barService) {
-            this.barService.hide()
-        }
+    collapse(): void {
+        this.collapsed = true
+    }
+
+    expand(): void {
+        this.collapsed = false
     }
 
     private findTerminalTab(tab: BaseTabComponent | null): BaseTerminalTabComponent<any> | null {
@@ -897,30 +991,21 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         event?.preventDefault()
         event?.stopPropagation()
         const terminal = this.getActiveTerminalTab()
-        const terminalAny = terminal as BaseTerminalTabComponent<any> & { inputProcessor?: { writeText?: (text: string) => void } }
 
         if (!terminal) {
             console.warn('ButtonBar: No terminal tab found')
             return
         }
 
-        const focusTerminal = () => terminalAny.frontend?.focus()
+        const focusTerminal = () => terminal.frontend?.focus()
 
         setTimeout(() => {
             focusTerminal()
+            // Enter must be a lone CR (0x0D), not LF (0x0A): Windows ConPTY
+            // translates LF into Ctrl+Enter, which PSReadLine binds to
+            // InsertLineAbove - the command would only open a ">>" line.
             const sanitizedCommand = btn.command.replace(/\r?\n/g, ' ')
-            if (terminalAny.inputProcessor?.writeText) {
-                terminalAny.inputProcessor.writeText(sanitizedCommand)
-                if (btn.sendEnter === true) {
-                    terminalAny.sendInput('\n')
-                }
-            } else if (terminalAny.sendInput) {
-                let command = sanitizedCommand
-                if (btn.sendEnter === true) {
-                    command += '\n'
-                }
-                terminalAny.sendInput(command)
-            }
+            terminal.sendInput(sanitizedCommand + (btn.sendEnter === true ? '\r' : ''))
             setTimeout(focusTerminal, 20)
         }, 10)
     }
@@ -977,6 +1062,9 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
     onWindowResize(): void {
         if (this.listMenuVisible) {
             this.positionListMenu()
+        }
+        if (this.contextMenuVisible) {
+            this.positionContextMenu()
         }
     }
 
@@ -1113,14 +1201,14 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
         if (this.editingButton) {
             Object.assign(this.editingButton, {
                 label: this.modalData.label,
-                command: this.modalData.command?.replace(/\r?\n/g, ' '),
+                command: this.modalData.command?.replace(/\r\n?/g, '\n'),
                 icon: this.modalData.icon || undefined,
                 color: this.modalData.color || undefined,
                 tooltip: this.modalData.tooltip || undefined,
                 sendEnter: this.modalData.sendEnter,
             })
         } else {
-            const commandText = this.modalData.command!.replace(/\\r?\\n/g, ' ')
+            const commandText = this.modalData.command!.replace(/\r\n?/g, '\n')
             const newButton: ButtonCommand = {
                 id: this.generateId(),
                 label: this.modalData.label!,
@@ -1133,25 +1221,94 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             list.buttons.push(newButton)
         }
 
-        this.saveLists()
-        this.closeModal()
+        try {
+            this.saveLists()
+        } catch (error) {
+            console.error('ButtonBar: Unable to save lists', error)
+        } finally {
+            this.closeModal()
+        }
     }
 
     // Context menu
     onButtonContextMenu(event: MouseEvent, btn: ButtonCommand): void {
         event.preventDefault()
         event.stopPropagation()
-        
+
+        const target = event.currentTarget as HTMLElement | null
         this.contextMenuButton = btn
-        this.contextMenuPosition = { x: event.clientX, y: event.clientY - 105 }
+        this.contextMenuAnchor = target?.getBoundingClientRect() ?? null
+
+        // Render hidden first, then measure the real menu size before placing it.
+        this.contextMenuStyles = { left: '0px', top: '0px', visibility: 'hidden' }
         this.contextMenuVisible = true
+        requestAnimationFrame(() => this.positionContextMenu())
+    }
+
+    /**
+     * Place the context menu inside the viewport:
+     * prefer above the button (the bar sits at the bottom), flip below if needed,
+     * clamp both axes to an 8px margin, and let it scroll internally when it is
+     * taller than the viewport.
+     */
+    private positionContextMenu(): void {
+        const el = this.contextMenuElement?.nativeElement
+        const anchor = this.contextMenuAnchor
+        if (!el || !anchor) {
+            return
+        }
+
+        const margin = 8
+        const gap = 6
+        const vw = window.innerWidth || document.documentElement.clientWidth
+        const vh = window.innerHeight || document.documentElement.clientHeight
+
+        // Measure the natural size (clear constraints from a previous opening).
+        el.style.maxHeight = ''
+        el.style.maxWidth = ''
+        el.style.minWidth = ''
+        el.style.overflowY = ''
+        const natural = el.getBoundingClientRect()
+        let width = natural.width
+        let height = natural.height
+
+        let top = anchor.top - gap - height
+        if (top < margin) {
+            if (anchor.bottom + gap + height <= vh - margin) {
+                top = anchor.bottom + gap
+            } else {
+                height = Math.max(vh - margin * 2, 0)
+                el.style.maxHeight = `${height}px`
+                el.style.overflowY = 'auto'
+                top = margin
+            }
+        }
+        top = Math.min(Math.max(top, margin), Math.max(margin, vh - margin - height))
+
+        if (width > vw - margin * 2) {
+            width = Math.max(vw - margin * 2, 0)
+            el.style.minWidth = '0'
+            el.style.maxWidth = `${width}px`
+            el.style.overflowX = 'auto'
+        }
+        let left = anchor.left
+        if (left + width > vw - margin) {
+            left = anchor.right - width
+        }
+        left = Math.min(Math.max(left, margin), Math.max(margin, vw - margin - width))
+
+        this.contextMenuStyles = {
+            left: `${Math.round(left)}px`,
+            top: `${Math.round(top)}px`,
+            visibility: 'visible',
+        }
     }
 
     contextMenuEdit(): void {
         if (this.contextMenuButton) {
             this.openEditModal(this.contextMenuButton)
         }
-        this.contextMenuVisible = false
+        this.closeContextMenu()
     }
 
     contextMenuDuplicate(): void {
@@ -1164,7 +1321,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
             this.activeList.buttons.push(newButton)
             this.saveLists()
         }
-        this.contextMenuVisible = false
+        this.closeContextMenu()
     }
 
     contextMenuDelete(): void {
@@ -1175,7 +1332,7 @@ export class ButtonBarComponent extends BaseComponent implements OnInit, OnDestr
                 this.saveLists()
             }
         }
-        this.contextMenuVisible = false
+        this.closeContextMenu()
     }
 
     // Import/Export
